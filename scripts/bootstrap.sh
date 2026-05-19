@@ -63,13 +63,5 @@ while ! repo sync --force-sync --jobs=${SYNC_JOBS} --no-clone-bundle --no-tags; 
     sleep 30
 done
 
-AOSP_TAG=$(grep --max-count=1 "aosp_revision:" .repo/manifests/config.yml | sed "s/.*: *//")
-ANDROID_VERSION=$(echo "${AOSP_TAG}" | sed "s/android-//;s/_r.*//")
-echo "Detected ANDROID_VERSION: ${ANDROID_VERSION}"
-echo "${ANDROID_VERSION}" > ../tmp/.android_version
-ANDROID_VERSION_TAG=$(grep --max-count=1 "target:" build/release/release_config_map.textproto \
-    | sed "s/.*\"\([^\"]*\)\".*/\1/")
-echo "Detected ANDROID_VERSION_TAG: ${ANDROID_VERSION_TAG}"
-echo "${ANDROID_VERSION_TAG}" > ../tmp/.android_version_tag
 popd # src/
 popd # treble_restlessos/
