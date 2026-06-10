@@ -46,6 +46,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           clean: false
+          lfs: true
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v6
@@ -131,7 +132,7 @@ jobs:
 
           REGIONS=$(for r in ${CANDIDATE_REGIONS}; do
             echo "${REGION_PRICE[$r]:-99.99} ${r}"
-          done | sort -g | awk '{print $2}')
+          done | sort --general-numeric-sort | awk '{print $2}')
           echo "Region priority (cheapest spot first): ${REGIONS}"
 
           # ------------------------------------------------------------------
@@ -308,6 +309,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           clean: false
+          lfs: true
           fetch-depth: 0
           fetch-tags: true
 
@@ -359,6 +361,13 @@ jobs:
             | sed "s/.*\"\([^\"]*\)\".*/\1/")
           echo "Detected ANDROID_VERSION_TAG: ${ANDROID_VERSION_TAG}"
           echo "${ANDROID_VERSION_TAG}" > ../tmp/.android_version_tag
+
+      - name: Copy trebledroid resources into tree
+        working-directory: src/
+        run: |
+          echo "Syncing trebledroid resources..."
+          rsync --archive --verbose ../trebledroid/ .
+          echo "Done."
 
       - name: Apply patches
         working-directory: src/
