@@ -1,16 +1,36 @@
-From f2e1b223e40f6d95d62b37b114b374be12acd5ba Mon Sep 17 00:00:00 2001
+From 717fc226d19b0c3c956540b4105294275e1ad961 Mon Sep 17 00:00:00 2001
 From: "Christopher A. Williamson" <contact@chrisaw.io>
-Date: Tue, 19 May 2026 21:20:21 +0100
+Date: Thu, 11 Jun 2026 18:31:40 +0100
 Subject: [PATCH] securize: rework to property-based toggle with GSI
  fingerprint tracking
 
+for release builds, replace the old securize script with a
+property-based toggle gated by persist.sys.phh.securize and
+/metadata/securize_disable.  on boot, rw-system.sh now detects
+GSI image upgrades by comparing ro.system.build.fingerprint against
+a persisted value and sets persist.pm.mock-upgrade so PMS correctly
+runs post-upgrade steps even though securize overwrites the system
+fingerprint with the vendor fingerprint.
+
+the GSI fingerprint is persisted to /metadata/phh/gsi_fingerprint
+(or /cache/phh/ on devices without a real /metadata partition) and
+compared on each boot. when it differs from the previous value,
+persist.pm.mock-upgrade is set to true.
+
+other securize changes:
+- remove phh-securize.sh from PRODUCT_COPY_FILES (now property-driven)
+- add persist.sys.phh.securize property handler to phh-prop-handler.sh
+- replace adb_secure handler with oem_unlock_allowed handler in vndk.rc
+- add post-boot prop spoofing in phh-on-boot.sh for device integrity
+- uncomment ro.sf.lcd_density handler in vndk.rc
+- replace persist.sys.usb.config=adb with ro.adb.secure=0 in base.mk
 ---
  base.mk             |   2 -
  phh-on-boot.sh      |  23 ++++++++
- phh-prop-handler.sh |  12 +++++
+ phh-prop-handler.sh |  14 +++++
  rw-system.sh        | 126 ++++++++++++++++++++++++++++++++++----------
  vndk.rc             |   9 ++--
- 5 files changed, 139 insertions(+), 33 deletions(-)
+ 5 files changed, 141 insertions(+), 33 deletions(-)
 
 diff --git a/base.mk b/base.mk
 index f5177f0..2909d5f 100644
@@ -33,12 +53,12 @@ index f5177f0..2909d5f 100644
  
  PRODUCT_COPY_FILES += \
 diff --git a/phh-on-boot.sh b/phh-on-boot.sh
-index 5f26430..f05013f 100644
+index 5f26430..113473b 100644
 --- a/phh-on-boot.sh
 +++ b/phh-on-boot.sh
-@@ -24,6 +24,29 @@ if [ ! -f /sys/fs/fuse/features/fuse_bpf ]; then
-     setprop persist.sys.fuse.bpf.override false
-     log -t phh-on-boot "Disabled FUSE BPF (kernel fuse_bpf feature absent)"
+@@ -73,6 +73,29 @@ if [ -f /vendor/bin/mtkmal ];then
+         reboot
+     fi
  fi
 +# spoof post-boot props
 +# should be applied after boot complete to prevent breaking device features
@@ -64,31 +84,30 @@ index 5f26430..f05013f 100644
 +  resetprop_phh -n init.svc.flash_recovery stopped
 +fi
  
- vndk="$(getprop persist.sys.vndk)"
- [ -z "$vndk" ] && vndk="$(getprop ro.vndk.version |grep -oE '^[0-9]+')"
+ if grep -qF android.hardware.boot /vendor/manifest.xml || grep -qF android.hardware.boot /vendor/etc/vintf/manifest.xml ;then
+ 	bootctl mark-boot-successful
 diff --git a/phh-prop-handler.sh b/phh-prop-handler.sh
-index cae90d6..84dc85d 100644
+index cae90d6..e55210c 100644
 --- a/phh-prop-handler.sh
 +++ b/phh-prop-handler.sh
-@@ -134,6 +134,18 @@ if [ "$1" == "sys.phh.oplus.fppress" ]; then
+@@ -297,3 +297,17 @@ if [ "$1" == "persist.bluetooth.system_audio_hal.enabled" ]; then
+     restartAudio
      exit
  fi
- 
 +
 +if [ "$1" == "persist.sys.phh.securize" ]; then
 +    if [[ "$prop_value" != "0" && "$prop_value" != "1" ]]; then
 +        exit 1
 +    fi
-+    if [[ "$prop_value" == 1 ]]; then
-+        rm -f /metadata/securize_disable
-+    else
++    if [[ "$prop_value" == "0" ]]; then
 +        touch /metadata/securize_disable
++        reboot
++    else
++        rm -f /metadata/securize_disable
++        reboot
 +    fi
++    exit
 +fi
-+
- if [ "$1" == "persist.sys.phh.oppo.usbotg" ]; then
-     if [[ "$prop_value" != "0" && "$prop_value" != "1" ]]; then
-         exit 1
 diff --git a/rw-system.sh b/rw-system.sh
 index e04d256..45da31d 100644
 --- a/rw-system.sh
@@ -250,20 +269,20 @@ index e04d256..45da31d 100644
      # Hide system/xbin/su
      mount /mnt/phh/empty_dir /system/xbin
 diff --git a/vndk.rc b/vndk.rc
-index 2bd6b35..e3e6d11 100644
+index fa08297..d13bfe9 100644
 --- a/vndk.rc
 +++ b/vndk.rc
-@@ -44,6 +44,9 @@ on property:persist.sys.phh.oppo.gaming_mode=*
- on property:sys.phh.oplus.fppress=*
+@@ -45,6 +45,9 @@ on property:sys.phh.oplus.fppress=*
      exec u:r:phhsu_daemon:s0 root -- /system/bin/phh-prop-handler.sh "sys.phh.oplus.fppress"
  
+ on property:persist.sys.phh.oppo.usbotg=*
++
 +on property:persist.sys.phh.securize=*
 +    exec u:r:phhsu_daemon:s0 root -- /system/bin/phh-prop-handler.sh "persist.sys.phh.securize"
-+
- on property:persist.sys.phh.oppo.usbotg=*
      exec u:r:phhsu_daemon:s0 root -- /system/bin/phh-prop-handler.sh "persist.sys.phh.oppo.usbotg"
  
-@@ -133,6 +136,6 @@ service watchdogd-gsi /system/bin/watchdogd 10 20
+ on property:persist.sys.phh.transsion.usbotg=*
+@@ -133,9 +136,9 @@ service watchdogd-gsi /system/bin/watchdogd 10 20
      disabled
      seclabel u:r:watchdogd:s0
  
@@ -273,6 +292,9 @@ index 2bd6b35..e3e6d11 100644
 +# reset oem unlock toggle to disable
 +on property:sys.oem_unlock_allowed=*
 +    exec u:r:magisk:s0 root root -- /system/bin/resetprop_phh -n sys.oem_unlock_allowed 0
+ 
+ # force software codecs: prefer SW/OMX encoders over broken vendor HW encoders.
+ # when enabled, c2inputsurface fallback is also activated so that
 -- 
-2.53.0
+2.54.0
 

@@ -136,3 +136,14 @@ service watchdogd-gsi /system/bin/watchdogd 10 20
 on property:persist.sys.phh.adb_secure=1
     exec u:r:phhsu_daemon:s0 root -- /system/bin/resetprop_phh ro.adb.secure 1
     restart adbd
+
+# force software codecs: prefer SW/OMX encoders over broken vendor HW encoders.
+# when enabled, c2inputsurface fallback is also activated so that
+# createPersistentInputSurface uses the AIDL buffer source path.
+# uses resetprop_phh -n to patch property area directly before media
+# services read them, matching the timing of CodecFix magisk module.
+on property:persist.sys.phh.force_sw_codecs=true
+    exec u:r:phhsu_daemon:s0 root -- /system/bin/resetprop_phh -n debug.stagefright.c2inputsurface -1
+    exec u:r:phhsu_daemon:s0 root -- /system/bin/resetprop_phh -n debug.stagefright.ccodec 1
+    exec u:r:phhsu_daemon:s0 root -- /system/bin/resetprop_phh -n debug.stagefright.omx_default_rank 0
+    exec u:r:phhsu_daemon:s0 root -- /system/bin/resetprop_phh -n media.c2.hal.selection aidl
